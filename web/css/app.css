@@ -230,3 +230,8 @@ hr.sep { border: 0; border-top: 1px solid var(--grid); margin: 14px 0; }
 .ins .do::before { content: "Next: "; font-weight: 650; color: var(--muted); }
 .spin { width: 16px; height: 16px; border: 2px solid var(--axis); border-top-color: var(--accent); border-radius: 50%; animation: sp .8s linear infinite; display: inline-block; } @keyframes sp { to { transform: rotate(360deg); } }
 @media print { .side, .tabbar, .btn { display: none !important; } #app { display: block; } }
+
+/* ---------- compact spacing (Settings > Appearance) ---------- */
+:root[data-density="compact"] .card { padding: 12px 14px; } :root[data-density="compact"] .grid { gap: 10px; } :root[data-density="compact"] .mt { margin-top: 10px; }
+:root[data-density="compact"] main { padding-top: 18px; } :root[data-density="compact"] .tx { padding: 6px 2px; } :root[data-density="compact"] .tbl td { padding: 5px 8px; }
+:root[data-density="compact"] .ins { padding: 8px 0; } :root[data-density="compact"] .figure { font-size: 44px; }
