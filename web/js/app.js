@@ -22,8 +22,16 @@
   };
   BT.ctx = ctx;
 
-  function applyTheme() { const t = localStorage.getItem('bt-theme') || 'auto'; if (t === 'auto') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', t); }
+  // Look preferences are per device (saved in this browser): theme, text size, density.
+  function applyTheme() {
+    const t = localStorage.getItem('bt-theme') || 'auto'; const el = document.documentElement;
+    if (t === 'auto') el.removeAttribute('data-theme'); else el.setAttribute('data-theme', t);
+    const fs = parseFloat(localStorage.getItem('bt-fs')) || 1; el.style.zoom = fs === 1 ? '' : String(fs);
+    if (localStorage.getItem('bt-dens') === 'compact') el.setAttribute('data-density', 'compact'); else el.removeAttribute('data-density');
+  }
   BT.setTheme = (t) => { localStorage.setItem('bt-theme', t); applyTheme(); ctx.render(); };
+  BT.setLook = (key, val) => { localStorage.setItem(key, val); applyTheme(); ctx.render(); };
+  BT.applyLook = applyTheme;
 
   ctx.render = function () {
     const r = (location.hash.replace(/^#\//, '') || 'home').split('?')[0]; const route = ROUTES.some((x) => x[0] === r) ? r : 'home'; ctx.route = route;
