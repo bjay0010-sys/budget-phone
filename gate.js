@@ -58,10 +58,10 @@
   async function start() {
     await BT.start(P);
     const tick = () => { if (!document.hidden) P.syncNow(); };
-    setInterval(tick, 120000); window.addEventListener('online', tick); P.syncNow();
-    let hiddenAt = 0; // lock after 2 minutes away
-    document.addEventListener('visibilitychange', () => { if (document.hidden) hiddenAt = Date.now(); else { if (hiddenAt && Date.now() - hiddenAt > 120000) P.lock(); else tick(); hiddenAt = 0; } });
+    setInterval(tick, 45000); window.addEventListener('online', tick); P.syncNow(); // checks for PC changes about every 45 seconds while open
+    let hiddenAt = 0; // ask again after being away for the time chosen in Settings (never, if set to stay unlocked)
+    document.addEventListener('visibilitychange', () => { if (document.hidden) hiddenAt = Date.now(); else { if (hiddenAt && Date.now() - hiddenAt > P.lockMs()) P.lock(); else tick(); hiddenAt = 0; } });
     setTimeout(() => BT.ocr.init(BT.config.ocrPath).catch(() => {}), 5000); // fetch the reader once so it works offline later
   }
-  if (link || mode === 'setup') setupScreen(); else if (P.hasFace && faceOk) faceScreen(true); else passScreen();
+  if (mode === 'open' && !link) { await done(); } else if (link || mode === 'setup') setupScreen(); else if (P.hasFace && faceOk) faceScreen(true); else passScreen();
 })();
