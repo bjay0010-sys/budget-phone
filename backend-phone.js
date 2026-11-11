@@ -18,7 +18,22 @@
     mode: 'phone', key: null, cfg: null, state: blank(), pending: [], token: null, error: null, syncing: false, lastPull: 0, _onChange: null,
 
     /** 'setup' if this phone has never been set up, else 'locked'. */
-    async boot() { this.cfg = (await kvGet('cfg')) || null; const f = await kvGet('face'); this.hasFace = !!f; this.faceMode = f ? f.mode : null; return this.cfg ? 'locked' : 'setup'; },
+    prefs: { lockMins: 5 },
+    /** 'setup' (never set up), 'locked' (ask for Face ID/passcode) or 'open' (this phone is set to stay unlocked). */
+    async boot() {
+      this.cfg = (await kvGet('cfg')) || null; const f = await kvGet('face'); this.hasFace = !!f; this.faceMode = f ? f.mode : null;
+      this.prefs = Object.assign({ lockMins: 5 }, (await kvGet('prefs')) || {});
+      if (!this.cfg) return 'setup';
+      if (this.prefs.lockMins === 'never' && !(await kvGet('lockreq'))) { const parked = await kvGet('parked'); if (parked) { try { await this.openWith(await Seal.importKey(parked)); return 'open'; } catch (e) { await kvDel('parked'); } } }
+      return 'locked';
+    },
+    async openWith(key) { const c = this.cfg; await Seal.open(key, c.check); this.key = key; this.token = (await Seal.open(key, c.tokenEnv)).t; await this.rebuild(); await kvDel('lockreq'); if (this.prefs.lockMins === 'never') await kvSet('parked', await Seal.exportKey(key)); },
+    /** How long the phone may be away before it asks again. 'never' keeps the key on the phone so nothing is asked. */
+    async setLock(v) {
+      if (!this.key) throw new Error('Unlock first.'); this.prefs.lockMins = v === 'never' ? 'never' : Number(v); await kvSet('prefs', this.prefs);
+      if (v === 'never') await kvSet('parked', await Seal.exportKey(this.key)); else await kvDel('parked');
+    },
+    lockMs() { return this.prefs.lockMins === 'never' ? Infinity : this.prefs.lockMins * 60000; },
 
     // ---- Face ID / passkey ----------------------------------------------------------------------------------
     // Same approach as Uni Hub. A passkey held by the phone (Face ID) is created for this site. If the browser can
@@ -52,7 +67,7 @@
       else { if (!rec.parked) throw new Error('Use the passcode this time.'); raw = Seal.fromB64(rec.parked); }
       const key = await Seal.importKey(Seal.toB64(raw)); const c = this.cfg;
       try { await Seal.open(key, c.check); } catch (e) { throw new Error('Face ID is out of date (the passcode was changed). Use the passcode.'); }
-      this.key = key; this.token = (await Seal.open(key, c.tokenEnv)).t; await this.rebuild();
+      await this.openWith(key);
     },
     async faceOff() { await kvDel('face'); await kvSet('facedecl', 1); this.hasFace = false; this.faceMode = null; },
     async faceDeclined() { return !!(await kvGet('facedecl')); },
@@ -82,7 +97,7 @@
     async unlock(passcode) {
       const c = this.cfg; const key = await Seal.deriveKey(passcode, c.salt, c.iter);
       try { await Seal.open(key, c.check); } catch (e) { throw new Error('Wrong passcode.'); }
-      this.key = key; this.token = (await Seal.open(key, c.tokenEnv)).t; await this.rebuild();
+      await this.openWith(key);
     },
 
     /** state = last snapshot from the PC + anything saved here that the PC has not confirmed yet. */
@@ -131,7 +146,7 @@
     },
     async status() { return { lastPull: this.lastPull, pending: this.pending.filter((p) => !p.sent).length, sent: this.pending.filter((p) => p.sent).length, error: this.error }; },
     onChange(cb) { this._onChange = cb; },
-    lock() { location.reload(); },
+    async lock() { if (this.prefs.lockMins === 'never') await kvSet('lockreq', 1); location.reload(); },
     async signOut() { await kvClear(); location.reload(); },
   };
   BT.phoneBackend = P;
