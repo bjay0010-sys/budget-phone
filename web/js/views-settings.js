@@ -11,11 +11,17 @@
     const name = h('input', { type: 'text', value: s.name || '', placeholder: 'Optional' });
     const goal = h('input', { type: 'number', min: 0, max: 80, value: s.savingsGoalPct });
     const months = h('select', {}, [3, 4, 6, 9, 12].map((n) => h('option', { value: n, selected: s.baselineMonths === n }, `${n} months`)));
-    const theme = h('select', { onchange: (e) => BT.setTheme(e.target.value) }, [['auto', 'Match my device'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => h('option', { value: v, selected: (localStorage.getItem('bt-theme') || 'auto') === v }, l)));
     root.append(card('You', 'These shape the comparisons, not your data.', h('div', { class: 'grid g2' },
       h('label', { class: 'field' }, 'Name', name), h('label', { class: 'field' }, 'Savings goal (% of income)', goal),
-      h('label', { class: 'field' }, 'Your usual month is based on the last', months), h('label', { class: 'field' }, 'Appearance', theme)),
+      h('label', { class: 'field' }, 'Your usual month is based on the last', months)),
       h('div', { class: 'row', style: 'margin-top:12px' }, h('button', { class: 'btn primary', onclick: async () => { await ctx.saveSettings({ name: name.value.trim(), savingsGoalPct: Math.max(0, Math.min(80, Number(goal.value) || 0)), baselineMonths: Number(months.value) }); toast('Saved'); ctx.render(); } }, 'Save'))));
+
+    // ---- appearance (saved on this device only)
+    const seg = (key, def, opts) => { const cur = localStorage.getItem(key) || def; return h('div', { class: 'seg', role: 'group' }, opts.map(([v, l]) => h('button', { type: 'button', class: String(cur) === String(v) ? 'on' : '', 'aria-pressed': String(cur) === String(v), onclick: () => BT.setLook(key, v) }, l))); };
+    root.append(card('Appearance', 'Saved on this device only, so your phone and PC can look different.', h('div', { class: 'stack' },
+      h('div', {}, h('div', { class: 'small ink2', style: 'margin-bottom:6px;font-weight:600' }, 'Theme'), seg('bt-theme', 'auto', [['auto', 'Match device'], ['light', 'Light'], ['dark', 'Dark']])),
+      h('div', {}, h('div', { class: 'small ink2', style: 'margin-bottom:6px;font-weight:600' }, 'Text size'), seg('bt-fs', '1', [['0.92', 'Small'], ['1', 'Normal'], ['1.12', 'Large'], ['1.25', 'Extra large']])),
+      h('div', {}, h('div', { class: 'small ink2', style: 'margin-bottom:6px;font-weight:600' }, 'Spacing'), seg('bt-dens', 'cozy', [['cozy', 'Comfortable'], ['compact', 'Compact']])))));
 
     // ---- rules
     const rulesBox = h('div', {});
@@ -101,6 +107,9 @@
         h('div', { class: 'small ink2' }, `Last updated from your PC: ${st.lastPull ? new Date(st.lastPull).toLocaleString('en-AU', { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : 'never'}. Waiting to send: ${st.pending}.`),
         st.error ? h('div', { class: 'banner mt' }, icon('alert'), st.error) : null,
         faceRow(),
+        h('label', { class: 'field', style: 'margin-top:12px' }, 'Ask for Face ID or passcode again after being away for', h('select', { onchange: async (e) => { try { await be.setLock(e.target.value); toast(e.target.value === 'never' ? 'This phone will stay unlocked' : 'Saved'); } catch (er) { toast(er.message); } } },
+          [['1', '1 minute'], ['5', '5 minutes'], ['30', '30 minutes'], ['480', '8 hours'], ['never', 'Never (stay unlocked)']].map(([v, l]) => h('option', { value: v, selected: String(be.prefs.lockMins) === v }, l))),
+          h('span', { class: 'tiny muted' }, 'Never: nothing is asked, and anyone who can open your unlocked iPhone can open Budget. Lock now still works.')),
         h('div', { class: 'row wrap', style: 'margin-top:10px' }, h('button', { class: 'btn', onclick: async (e) => { e.target.disabled = true; try { await be.syncNow(); await ctx.load(); toast('Synced'); } catch (err) { toast(err.message); } ctx.render(); } }, icon('sync'), 'Sync now'), h('button', { class: 'btn', onclick: () => be.lock() }, icon('lock'), 'Lock now'),
           h('button', { class: 'btn danger', onclick: async () => { if (await BT.ui.confirmBox('Sign out of this phone?', 'The copy of your data on this phone is erased. Your PC is not affected. Anything not yet sent is lost.', 'Sign out', true)) be.signOut(); } }, 'Sign out')));
     }; draw();
