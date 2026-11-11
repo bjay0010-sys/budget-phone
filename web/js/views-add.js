@@ -23,10 +23,16 @@
         const f = files[i]; const entry = { name: f.name, kind: 'image', url: null, rows: 0, warnings: [], error: null, mapping: null };
         S.files.push(entry); S.msg = `Reading ${i + 1} of ${files.length}: ${f.name}`; S.progress = i / files.length; draw();
         try {
-          if (/\.csv$/i.test(f.name) || /csv/i.test(f.type)) {
-            entry.kind = 'csv'; const r = BT.csv.importCSV(await f.text()); entry.mapping = r.mapping; entry.warnings = r.warnings; entry.skipped = r.skipped; const sh = shot++;
-            for (const row of r.rows) S.rows.push(mk(row, sh, i)); entry.rows = r.rows.length;
-          } else if (/^image\//.test(f.type) || /\.(png|jpe?g|heic|webp)$/i.test(f.name)) {
+          const head = new Uint8Array(await f.slice(0, 600).arrayBuffer()); const fmt = BT.importers.sniff(f.name, f.type, head);
+          if (fmt !== 'image') {
+            // CSV, Excel, PDF, OFX/QFX, QIF, plain text: read the file itself (no picture reading unless a PDF page is a picture)
+            const r = await BT.importers.readFile(f, { ref: S.refDate, isIncomeDesc: (d) => ctx.isIncomeDesc(d),
+              onStatus: (m) => { S.msg = m; draw(); }, onProgress: (p) => { S.progress = (i + p) / files.length; drawProgress(); } });
+            entry.kind = r.kind; entry.mapping = r.mapping && Object.keys(r.mapping).length ? r.mapping : null; entry.warnings = r.warnings || []; entry.skipped = r.skipped; if (r.error) entry.error = r.error;
+            const sh = shot++; const dates = r.rows.map((x) => x.date).filter(Boolean).sort(); const fallback = dates.length ? dates[0] : S.refDate;
+            for (const row of r.rows) { if (!row.date) { row.date = fallback; row.flags = (row.flags || []).concat(['date was not visible: guessed']); row.lowConf = true; } S.rows.push(mk(row, sh, i)); }
+            entry.rows = r.rows.length;
+          } else {
             entry.url = URL.createObjectURL(f);
             S.msg = 'Starting the screenshot reader (first time takes a few seconds)...'; draw();
             await BT.ocr.init(BT.config.ocrPath);
@@ -36,7 +42,7 @@
             const dates = r.rows.map((x) => x.date).filter(Boolean); const fallback = dates.length ? dates.sort()[0] : S.refDate;
             for (const row of r.rows) { if (!row.date) { row.date = fallback; row.flags = (row.flags || []).concat(['date was not visible: guessed']); row.lowConf = true; } S.rows.push(mk(row, base + (row.strip || 0), i)); }
             entry.rows = r.rows.length;
-          } else { entry.error = 'Not an image or CSV file.'; }
+          }
         } catch (e) { console.error(e); entry.error = 'Could not read this file: ' + (e.message || e); }
       }
       S.progress = 1; recompute(true); S.stage = 'review'; draw();
@@ -56,18 +62,26 @@
     // -------------------------------------------------------------- drawing
     function drawProgress() { const p = root.querySelector('.prog > i'); if (p) p.style.width = Math.round(S.progress * 100) + '%'; }
 
+    function pasteCard() {
+      const ta = h('textarea', { rows: 4, placeholder: 'Paste transactions here, one per line, e.g.\n12 Nov 2026  Woolworths Officer  -$42.35\nor rows copied from a spreadsheet or your bank\'s website', style: 'width:100%;font:inherit;padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:inherit;resize:vertical' });
+      return h('div', { class: 'card' }, h('h2', {}, 'Or paste text'), h('div', { class: 'sub' }, 'Copied from a web page, an email or a spreadsheet.'), ta,
+        h('div', { class: 'row', style: 'margin-top:8px' }, h('button', { class: 'btn sm', onclick: () => { const t = ta.value.trim(); if (!t) return; process([new File([t], 'pasted text.txt', { type: 'text/plain' })]); } }, 'Read pasted text')));
+    }
+
     function pick() {
-      const input = h('input', { type: 'file', multiple: true, accept: 'image/*,.csv,text/csv', class: 'hide', onchange: (e) => process(e.target.files) });
-      const dz = h('div', { class: 'drop' + (S.over ? ' over' : ''), tabindex: 0, role: 'button', 'aria-label': 'Choose screenshots or CSV files',
+      const input = h('input', { type: 'file', multiple: true, accept: 'image/*,.pdf,application/pdf,.csv,.tsv,.txt,.xlsx,.ofx,.qfx,.qif,text/*', class: 'hide', onchange: (e) => process(e.target.files) });
+      const dz = h('div', { class: 'drop' + (S.over ? ' over' : ''), tabindex: 0, role: 'button', 'aria-label': 'Choose screenshots or statement files',
         onclick: () => input.click(), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') input.click(); },
         ondragover: (e) => { e.preventDefault(); dz.classList.add('over'); }, ondragleave: () => dz.classList.remove('over'),
         ondrop: (e) => { e.preventDefault(); process(e.dataTransfer.files); } },
-        icon('add'), h('div', { class: 'big' }, BT.config.mode === 'phone' ? 'Choose screenshots' : 'Drop screenshots or CSV files here'), h('div', { class: 'ink2 small' }, BT.config.mode === 'phone' ? 'Tap to pick from Photos. They are read on this phone and never uploaded.' : 'or click to choose. Several at once is fine. Everything is read on this computer.'), input);
+        icon('add'), h('div', { class: 'big' }, BT.config.mode === 'phone' ? 'Choose screenshots or files' : 'Drop screenshots or statement files here'), h('div', { class: 'ink2 small' }, BT.config.mode === 'phone' ? 'Photos, or PDF / CSV / Excel files from the Files app. Read on this phone, never uploaded.' : 'Screenshots, PDF, CSV, Excel, OFX/QFX, QIF or text. Several at once is fine. Everything is read on this computer.'), input);
       const date = h('input', { type: 'date', value: S.refDate, onchange: (e) => { S.refDate = e.target.value || U.today(); } });
       return h('div', { class: 'stack' }, dz,
         h('div', { class: 'card' }, h('div', { class: 'row wrap' }, h('label', { class: 'field', style: 'max-width:240px' }, 'Screenshots were taken on', date), h('div', { class: 'small ink2 grow', style: 'min-width:220px' }, 'Only matters when the app shows "Today" or "Yesterday" instead of a date.'))),
+        pasteCard(),
         h('div', { class: 'card' }, h('h2', {}, 'Tips for accurate reading'), h('ul', { class: 'ink2 small', style: 'margin:8px 0 0;padding-left:18px' },
-          h('li', {}, 'For history, use the CSV statement from ubank. It is exact, whereas a screenshot can be misread.'),
+          h('li', {}, 'For history, use a statement file from ubank (CSV, PDF, Excel or OFX). They are read exactly, whereas a screenshot can be misread.'),
+          h('li', {}, 'PDFs with real text are read exactly. A PDF that is only a picture goes through the screenshot reader, so check those more carefully.'),
           h('li', {}, 'Screenshots: scroll so that dates and amounts are both visible, and overlap them a little. Overlaps are detected, not double counted.'),
           h('li', {}, 'Full brightness and no banners over the list gives the best result. Dark mode works.'))));
     }
