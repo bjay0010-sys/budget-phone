@@ -1,7 +1,7 @@
 /* Phone start-up: setup (from the PC's link), lock screen with Face ID, auto-lock, background sync. */
 (async function () {
   const { h, icon } = BT.ui; const P = BT.phoneBackend;
-  BT.config = { mode: 'phone', ocrPath: 'web/vendor/ocr' };
+  BT.config = { mode: 'phone', ocrPath: 'web/vendor/ocr', pdfPath: 'web/vendor/pdf' };
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
   // The setup link carries the repo and token after "#", which is never sent to any server. Remove it from the
