@@ -86,7 +86,7 @@
     if (!ctx.state.transactions.length) { root.append(onboarding(ctx)); return root; }
     const sb = staleBanner(ctx, s); if (sb) root.append(sb);
     const uncat = ctx.state.transactions.filter((t) => t.category === 'uncat').length;
-    if (uncat) root.append(h('div', { class: 'banner info mt' }, icon('info'), h('div', {}, `${uncat} transaction${uncat > 1 ? 's' : ''} still need a category. Until they have one they count as everyday spending. `, h('a', { href: '#/txns?need=1', onclick: () => { BT.txnFilter = { need: true }; } }, 'Sort them out'))));
+    if (uncat) root.append(h('div', { class: 'banner info mt' }, icon('info'), h('div', {}, `${uncat} transaction${uncat > 1 ? 's' : ''} ${uncat > 1 ? 'still need a category. Until they have one they count' : 'still needs a category. Until it has one it counts'} as everyday spending. `, h('a', { href: '#/txns?need=1', onclick: () => { BT.txnFilter = { need: true }; } }, 'Sort them out'))));
     root.append(h('div', { class: 'mt' }, hero(ctx, s)), kpis(ctx, s), h('div', { class: 'grid g21 mt' }, variance(ctx, s), attention(ctx, s)), h('div', { class: 'mt' }, review(ctx, s)));
     return root;
   };
