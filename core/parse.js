@@ -11,7 +11,7 @@
   const MONTH = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
   const MON = '(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
   const WD = '(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)[a-z]*\\.?,?\\s+';
-  const RE_DMY_TEXT = new RegExp(`(?:${WD})?\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+${MON}\\b\\.?,?(?:\\s+(\\d{4}))?`, 'i');
+  const RE_DMY_TEXT = new RegExp(`(?:${WD})?\\b(\\d{1,2})(?:st|nd|rd|th)?(?:\\s+|\\s*[-/.]\\s*)${MON}\\b(?:\\.?,?\\s+(\\d{4})\\b|\\s*[-/.]\\s*(\\d{4}|\\d{2}(?![\\d.,:]\\d))|\\.?,?)`, 'i');
   const RE_MDY_TEXT = new RegExp(`(?:${WD})?\\b${MON}\\b\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b(?:,?\\s+(\\d{4}))?`, 'i');
   const RE_SLASH = /\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/;
   const RE_DOTDASH = /\b(\d{1,2})[-.](\d{1,2})[-.](\d{2,4})\b/;
@@ -36,7 +36,7 @@
     let m;
     if ((m = RE_ISO.exec(text))) { const iso = U.iso(+m[1], +m[2], +m[3]); if (U.validISO(iso)) return { date: iso, index: m.index, length: m[0].length }; }
     if ((m = RE_DMY_TEXT.exec(text))) {
-      const d = +m[1], mo = monthNum(m[2]); const iso = m[3] ? U.iso(+m[3], mo, d) : inferYear(mo, d, ref);
+      const yr = m[3] || m[4]; const d = +m[1], mo = monthNum(m[2]); const iso = yr ? U.iso(fullYear(yr), mo, d) : inferYear(mo, d, ref);
       if (iso && U.validISO(iso)) return { date: iso, index: m.index, length: m[0].length };
     }
     if ((m = RE_MDY_TEXT.exec(text))) {
@@ -65,13 +65,13 @@
   }
 
   // ---------- amounts ----------
-  const RE_AMT = /([+\-−–—]?)\s?(AU)?(\$|S|§)?\s?(\d{1,3}(?:,\d{3})+|\d{1,7})\.(\d{2})(?!\d)(?:\s?(CR|DR)\b)?/gi;
+  const RE_AMT = /([+\-−–—]?)\s?(AU)?(\$|S|§)?\s?(\d{1,3}(?:,\d{3})+|\d{1,7})\.(\d{2})(?!\d)(?![.\/-]\d)(?:\s?(CR|DR)\b)?/gi;
   function findAmounts(text) {
     const out = [];
     RE_AMT.lastIndex = 0;
     let m;
     while ((m = RE_AMT.exec(text))) {
-      const start = m.index; const prev = text[start - 1];
+      const start = m.index + (m[0].match(/^\s*/)[0].length); const prev = text[start - 1]; // the pattern may begin at a space; judge the character before the number itself
       // the "S" some OCR engines give for "$" must not be the tail of a word; digits glued to letters aren't money
       if (prev && /[A-Za-z0-9.,]/.test(prev) && !m[1]) { continue; }
       if (m[3] && m[3].toUpperCase() === 'S' && prev && /[A-Za-z]/.test(prev)) continue;
@@ -114,7 +114,7 @@
     const ref = opts.ref || U.today();
     const rows = []; const warnings = [];
     let cur = null; let pendingSection = false; let last = null; let lastText = null; let lastTextIdx = -1;
-    let sawDateHeader = false;
+    let sawDateHeader = false; let curFromRow = false; // true when `cur` came from a row that showed its own date (statements show the date once per day)
 
     for (let i = 0; i < lines.length; i++) {
       const ln = lines[i]; const text = String(ln.text || '').replace(/ /g, ' ').replace(/\s{2,}/g, '  ').trim();
@@ -124,7 +124,7 @@
       if (!amts.length) {
         if (PENDING_HDR.test(text)) { pendingSection = true; last = null; lastText = null; continue; }
         const hd = headerDate(text, ref);
-        if (hd) { cur = hd; sawDateHeader = true; pendingSection = false; last = null; lastText = null; continue; }
+        if (hd) { cur = hd; curFromRow = false; sawDateHeader = true; pendingSection = false; last = null; lastText = null; continue; }
         if (SECTION_NOISE.test(text) || /^\d{1,2}:\d{2}\b/.test(text) || /^\d{1,3}%$/.test(text)) continue;
         // text-only line: a subtitle of the txn above, or the merchant name for an amount-only line below
         if (last && i - last.lineIdx <= 2) {
@@ -152,6 +152,7 @@
       let rowDate = null; let dateInline = false;
       const hit = findDate(left, ref);
       if (hit) { rowDate = hit.date; dateInline = true; left = left.slice(0, hit.index) + ' ' + left.slice(hit.index + hit.length); }
+      let carryNote = false; if (rowDate) { cur = rowDate; curFromRow = true; } else if (cur && curFromRow) carryNote = true;
       let pending = pendingSection || /\bpending\b/i.test(left);
       left = left.replace(/\bpending\b/gi, ' ');
       let desc = cleanDesc(left);
@@ -166,7 +167,7 @@
       }
 
       const row = {
-        date: rowDate || cur, dateGuess: !(rowDate || cur), desc: desc || '(unreadable)', amount: amt.cents, balance: bal ? bal.cents : null,
+        date: rowDate || cur, dateGuess: !(rowDate || cur), dateCarried: carryNote, desc: desc || '(unreadable)', amount: amt.cents, balance: bal ? bal.cents : null,
         sign: amt.sign, pending, kind, subtitle: null, signSource: amt.sign ? 'explicit' : null,
         lowConf: !desc, flags: [], raw: text, lineIdx: i, _sym: amt.hasSymbol,
       };
