@@ -105,10 +105,13 @@
     const names = hdr ? grid[hdr.index] : null;
     const mapping = {}; for (const k of Object.keys(roles)) mapping[k] = names ? names[roles[k]].trim() : `column ${roles[k] + 1}`;
 
-    const rows = []; let skipped = 0;
+    const rows = []; let skipped = 0; let lastDate = null; let carriedN = 0;
     for (const r of grid.slice(start)) {
-      const date = parseDateCell(r[roles.date], order);
+      let date = parseDateCell(r[roles.date], order);
+      // some statements show the date once per day and leave it blank on the rows below: reuse the date above
+      if (!date && lastDate && String(r[roles.date] || '').trim() === '' && (roles.amount !== undefined ? U.toCents(r[roles.amount]) : (U.toCents(r[roles.debit]) || U.toCents(r[roles.credit]))) && String(roles.desc !== undefined ? r[roles.desc] : '').trim()) { date = lastDate; carriedN++; }
       if (!date) { skipped++; continue; }
+      lastDate = date;
       let amount = null;
       if (roles.amount !== undefined) amount = U.toCents(r[roles.amount]);
       if (roles.debit !== undefined || roles.credit !== undefined) {
@@ -126,6 +129,7 @@
       const balance = roles.balance !== undefined ? U.toCents(r[roles.balance]) : null;
       rows.push({ date, desc: desc || '(no description)', amount, balance, raw: r.join(' | ') });
     }
+    if (carriedN) warnings.push(`${carriedN} row${carriedN > 1 ? 's' : ''} had no date, so the date of the row above was used.`);
     if (!rows.length) warnings.push('No transaction rows could be read.');
     // single signed Amount column where every number is positive: direction unknown
     if (roles.amount !== undefined && roles.debit === undefined && roles.type === undefined && rows.length > 5 && rows.every((x) => x.amount > 0)) {
